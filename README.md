@@ -38,7 +38,7 @@
 비공개 검색어/시드
   → 검색 결과 URL 후보
   → URL·DNS·robots·rate limit 검증
-  → HTML 1MB 이내 수집
+  → HTML 2MB 이내 수집
   → 본문 추출
   → 개인정보 마스킹·URL HMAC
   → 중복/캠페인 지문
@@ -157,11 +157,42 @@ personal-info-crawl \
 사람이 Google에서 확인해 내부 파일로 전달한 공개 결과 URL을 `--seed-file`로
 수집하거나, 팀 승인을 받아 별도 검색 API를 정한 뒤 어댑터를 추가해야 합니다.
 
+SerpAPI를 승인해 사용하는 경우 비밀키는 Git에서 제외되는 저장소 루트 `.env`에
+`SERPAPI_API_KEY=...` 형식으로 넣고 파일 권한을 600으로 유지합니다. 실행 전에
+환경파일을 현재 셸로 불러옵니다. `serpapi` 공급자는 `--search-pages`로 요청한
+결과 수를 최대 100건까지 한 API 호출로 합치며, `--max-search-queries`로 전체
+유료 호출 수를 제한합니다. 다음 예시는 20개 검색어를 각각 한 번만 요청합니다.
+
+```bash
+set -a
+source .env
+set +a
+personal-info-crawl \
+  --queries config/queries.local.yaml \
+  --target 10000 \
+  --skip-detection-workbook \
+  --search-provider serpapi \
+  --max-search-queries 20 \
+  --search-pages 3 \
+  --discovery-relevance-gate review \
+  --relevance-gate intent \
+  --follow-links-per-page 20 \
+  --candidate-pool-limit 10000 \
+  --retain-exact-duplicates \
+  --out output/board_census_serpapi
+```
+
 운영 검색어는 완성된 문장이나 따옴표 구문 검색보다 `대상어 + 거래·연락 신호`로
 이루어진 짧은 단어 조합을 사용합니다. 예를 들어 대상어 한 개와 보조어 한두 개를
 조합하고 `--strict-search`는 사용하지 않습니다. 검색 단계에서는 표현 변형을 넓게
 발견하고, `--relevance-gate review` 또는 `strict`가 목적지 본문에 나타난 대상·직접
 거래 의사·구체적 연락수단을 확인합니다.
+
+`nate`는 Nate의 공개 통합검색이 사용하는 Daum 렌더링 결과를 수집합니다. 해당
+표면에서 결과를 막는 `-site:` 같은 음수 연산자는 URL 생성 시 제거하고, 이미 수집한
+출처 묶음 제외와 도메인별 후보 상한은 크롤러 내부 기준으로 계속 적용합니다.
+`yahoo_japan`은 Yahoo! JAPAN의 공개 웹 검색에서 한국어로 색인된 결과를 수집하며,
+제목뿐 아니라 결과 카드의 요약문을 발견 단계 정탐 필터에 함께 사용합니다.
 
 키워드 확장은 정탐 신호가 강한 검색 요약에서 `디비/DB/아이디/계정` 계열
 대상어와 `텔그/텔레그램/판매/거래` 계열 보조어가 가까이 나타난 짧은 조합만 다음
@@ -175,7 +206,7 @@ personal-info-crawl \
 | `--target` | 200 | 최종 성공 표본 수 |
 | `--search-pages` | 2 | 검색어별 검색결과 페이지 수 |
 | `--search-page-offset` | 0 | 이미 확인한 검색결과 페이지 수. 2면 3페이지부터 탐색 |
-| `--search-provider` | 전체 | 검색 공급자 선택(`naver`, `daum`, `daum_blog`, `bing` 등), 반복 지정 가능 |
+| `--search-provider` | 전체 | 검색 공급자 선택(`naver`, `daum`, `nate`, `yahoo_japan`, `bing` 등), 반복 지정 가능 |
 | `--google-api-key-env` | `GOOGLE_CSE_API_KEY` | Google 검색 API 키를 읽을 환경변수 이름 |
 | `--google-cse-id-env` | `GOOGLE_CSE_ID` | Google Programmable Search Engine ID 환경변수 이름 |
 | `--provider-stale-pages` | 12 | 새 후보가 연속으로 나오지 않을 때 다음 검색 공급자로 전환할 기준 |
@@ -193,7 +224,7 @@ personal-info-crawl \
 | `--keyword-expansion-min-domains` | 2 | 확장어 채택에 필요한 서로 다른 출처 도메인 수 |
 | `--min-text-chars` | 80 | 성공 건으로 인정할 최소 추출 본문 길이 |
 | `--min-korean-chars` | 0 | 제목·본문에 필요한 최소 한글 음절 수 |
-| `--follow-links-per-page` | 0 | 본문 성공 페이지에서 추가할 게시물형 내부 링크 수 |
+| `--follow-links-per-page` | 0 | 본문 성공 페이지와 제외되는 게시판 목록에서 추가할 게시물형 내부 링크 수 |
 | `--candidate-pool-limit` | 목표×4 | 내부 링크를 포함한 최대 후보 수 |
 | `--max-candidates-per-domain` | 100 | 검색 발견·내부 링크 확장을 합친 도메인당 후보 상한 |
 | `--max-candidates-per-source-unit` | 10 | 같은 SNS 계정·채널 또는 게시판에서 확인할 후보 상한 |
@@ -204,6 +235,7 @@ personal-info-crawl \
 | `--min-type-share` | 0.05 | DB·계정/인증·통장/계좌·신분증/여권 유형별 최소 비율 |
 | `--max-records-per-campaign` | 1 | 동일 연락처 캠페인에서 보존할 최대 대표 게시물 수 |
 | `--refresh-discovery` | 비활성 | 재개할 때 저장된 후보 큐 대신 검색을 다시 실행해 새 URL을 추가 |
+| `--retry-filtered` | 비활성 | 현재 코드로 과거 본문 필터·크기·비HTML 판정 후보를 다시 확인 |
 | `--expand-existing-links` | 비활성 | 기존 성공 페이지는 중복 저장하지 않고 관련 내부 글 발견에만 사용 |
 | `--checkpoint-every` | 25 | CSV·로그·후보 큐를 저장할 실제 수집 시도 횟수 간격 |
 | `--skip-detection-workbook` | 비활성 | 원 URL Excel 없이 마스킹 CSV만 생성 |
@@ -252,6 +284,21 @@ python3 -m collector.build_labeling_pilot \
 제한합니다. 이 우선순위는 자동 정답이 아니며 모든 최종 라벨은 계속
 `uncertain`으로 생성됩니다.
 
+`--min-domains`가 설정된 수집은 목표를 충족할 때까지 기존 결과에 없던 도메인의
+후보를 먼저 확인합니다. 목표 수량의 마지막 슬롯은 아직 부족한 신규 도메인 수만큼
+예약하므로, 기존 도메인의 추가 게시물이 먼저 성공해 도메인 최소 조건을 막지
+않습니다. `--resume --follow-links-per-page`에서 기존 성공 페이지를 먼저 다시
+확인하는 동작은 `--expand-existing-links`를 함께 지정했을 때만 활성화됩니다.
+도메인·유형·연락처 캠페인 상한 때문에 일시 보류된 후보는 영구 실패로 간주하지
+않으며, 이후 재개 실행에서 표본 구성이나 상한이 달라지면 다시 검토합니다.
+본문 필터가 변경된 뒤 과거 후보의 재현율을 다시 확인할 때는
+`--resume --retry-filtered`를 사용합니다. robots 제외, 중복, 영구 HTTP 오류는
+그대로 건너뛰며, 이전 `missing_*`·`excluded_*`, `content_too_large`,
+`non_html_content` 판정만 현재 코드로 재평가합니다. `Content-Type`이 없는 레거시
+응답은 2MB 상한 안에서 `<html>`, `<head>`, `<body>` 같은 명확한 HTML 구조가
+확인될 때만 본문으로 처리합니다. 명시적으로 비HTML인 MIME이나 첨부 응답은
+스니핑하지 않습니다.
+
 인계 폴더에는 라벨을 비운 `label_A.csv`와 `label_B.csv`, `guide.md`,
 `masking.json`, `manifest.json`이 생성됩니다. 원 URL 대응표는
 `.private/urls.csv`에 기록됩니다. 원문 확인이 필요한 내부 라벨러용 파일은
@@ -279,6 +326,9 @@ near_duplicate_cluster, near_duplicate_fingerprint, campaign_group
 `near_duplicate_cluster`는 기존 소비자 호환용 별칭이며 실제 값은
 `near_duplicate_fingerprint`와 같은 SimHash 지문입니다. 지문이 완전히 같은 본문은
 수집 단계에서 제외하고, 비슷하지만 지문이 다른 문서의 중복 군집은 후처리에서 구성합니다.
+`campaign_group`은 본문 앞부분의 대표 메신저 아이디나 반복되는 운영자 브랜드를
+HMAC으로 표현합니다. 관련 글 목록의 다른 연락처나 복사본에만 추가된
+보조 연락처가 동일 판매자를 서로 다른 캠페인으로 만들지 않도록 합니다.
 `--discovery-relevance-gate`는 검색 요약에 적용하는 예비 필터이고,
 `--relevance-gate`는 목적지 본문에 적용합니다. 검색 요약이 짧을 때는 전자를
 `review`, 후자를 `intent`로 두어 후보를 놓치지 않으면서 본문 오탐을 줄입니다.
@@ -289,10 +339,20 @@ near_duplicate_cluster, near_duplicate_fingerprint, campaign_group
 구조적 비본문 페이지는 모든 모드에서 제외합니다.
 
 `intent`와 `strict`에서는 기사·재게시 기사, 거래 위험 안내문, 정상 신분증
-상품·촬영 소품, 게임 계정, 상품권 거래, 텔레그램 빈 셸, 게시판 목록,
+상품·촬영 소품, 게임 계정, 도박 추천·리퍼럴 글, 상품권 거래, 텔레그램 빈 셸,
+검색어 반영·태그·순위 목록과 게시판 목록,
 다품목 키워드 도배와 서비스 문구에 계정 키워드를 삽입한 SEO 스팸을 먼저
-제외합니다. 목록 페이지는 표본에 저장하지 않지만, 같은 사이트의 개별 거래글을
-찾기 위한 링크 탐색에는 사용할 수 있습니다.
+제외합니다. 고객 동의·녹취·소명 자료·수집 경로·적법성을 확인하는 B2B 리드
+서비스와 광고를 통해 신규 리드를 만드는 인바운드 마케팅도 불법 DB 거래와
+분리합니다. 목록 페이지는 표본에 저장하지 않지만,
+같은 사이트의 개별 거래글을
+찾기 위한 링크 탐색에는 `--follow-links-per-page`를 1 이상으로 둔 경우
+사용할 수 있습니다.
+
+등록 도메인은 임의의 2단계 도메인 예외 목록이 아니라 패키지에 포함된 Public
+Suffix 스냅샷으로 계산합니다. 따라서 `forum.audio.com.pl` 같은 주소도
+`audio.com.pl`로 일관되게 집계되며, 재검증 시 기존 행의 도메인 값도 다시
+계산합니다.
 
 짧은 단어 조합으로 재현율을 먼저 확보한 뒤 정밀도를 높이려면 같은 URL을 다시
 검색하지 않고 검토 실행의 비공개 후보 큐를 엄격 실행의 시드로 사용합니다.
